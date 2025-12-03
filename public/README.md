@@ -21,7 +21,7 @@ Visit: **[Emoji Crypto Chat](https://kevlarveil.github.io/emoji-crypto-chat/)**
 
 1. **Clone the repo:**
 ```bash
-   git clone https://github.com/YOUR-USERNAME/emoji-crypto-chat.git
+   git clone https://github.com/kevlarveil/emoji-crypto-chat.git
    cd emoji-crypto-chat
 ```
 
