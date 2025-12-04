@@ -16,9 +16,27 @@ const xorEncrypt = (str, key) => {
   return btoa(output);
 };
 
+// --- ENCRYPTION LOGIC (Symmetric XOR Cipher with UTF-8) ---
+const xorEncrypt = (str, key) => {
+  let output = '';
+  for (let i = 0; i < str.length; i++) {
+    const keyChar = key.charCodeAt(i % key.length);
+    const encryptedChar = str.charCodeAt(i) ^ keyChar;
+    output += String.fromCharCode(encryptedChar);
+  }
+  // Use TextEncoder for UTF-8 support, then Base64 encode
+  const encoded = new TextEncoder().encode(output);
+  return btoa(String.fromCharCode.apply(null, encoded));
+};
+
 const xorDecrypt = (base64Str, key) => {
   try {
-    const decodedStr = atob(base64Str);
+    const binaryStr = atob(base64Str);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+    const decodedStr = new TextDecoder().decode(bytes);
     let output = '';
     for (let i = 0; i < decodedStr.length; i++) {
       const keyChar = key.charCodeAt(i % key.length);
