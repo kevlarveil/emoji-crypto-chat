@@ -1,4 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
+import { auth, db, initializeAuth } from './firebase';
+import { 
+  collection, addDoc, onSnapshot, query, serverTimestamp, setDoc, doc 
+} from 'firebase/firestore';
 
 export default function EmojiCryptoChat() {
   const [nickname, setNickname] = useState('');
@@ -8,15 +12,48 @@ export default function EmojiCryptoChat() {
   const [isNicknameModalOpen, setIsNicknameModalOpen] = useState(false);
   const [modalInput, setModalInput] = useState('');
   const [notification, setNotification] = useState(null);
+  const [loading, setLoading] = useState(true);
   const messagesEndRef = useRef(null);
 
-  // Initialize user on mount
+  // Initialize Firebase Auth
   useEffect(() => {
-    const newId = `user_${Math.random().toString(36).substr(2, 9)}`;
-    setUserId(newId);
+    initializeAuth().then(() => {
+      const unsubscribe = auth.onAuthStateChanged((user) => {
+        if (user) {
+          setUserId(user.uid);
+          setLoading(false);
+        }
+      });
+      return () => unsubscribe();
+    });
   }, []);
 
-  // Auto-scroll to latest message
+  // Listen to messages from Firestore
+  useEffect(() => {
+    if (!userId) return;
+
+    const messagesRef = collection(db, 'emoji_chat_messages');
+    const q = query(messagesRef);
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedMessages = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      fetchedMessages.sort((a, b) => {
+        const tsA = a.timestamp?.toMillis() || 0;
+        const tsB = b.timestamp?.toMillis() || 0;
+        return tsA - tsB;
+      });
+
+      setMessages(fetchedMessages);
+    });
+
+    return () => unsubscribe();
+  }, [userId]);
+
+  // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -26,21 +63,34 @@ export default function EmojiCryptoChat() {
     return str.trim().length > 0 && str.replace(emojiRegex, '').trim().length === 0;
   };
 
-  const saveNickname = () => {
+  const saveNickname = async () => {
     if (!modalInput.trim() || modalInput.trim().length < 2) {
       setNotification({ type: 'error', message: 'Nickname must be 2+ characters!' });
       setTimeout(() => setNotification(null), 3000);
       return;
     }
 
-    setNickname(modalInput.trim());
-    setIsNicknameModalOpen(false);
-    setModalInput('');
-    setNotification({ type: 'success', message: `Identity set to "${modalInput}"! 🚀` });
-    setTimeout(() => setNotification(null), 3000);
+    try {
+      const profileRef = doc(db, 'emoji_chat_users', userId);
+      await setDoc(profileRef, {
+        userId,
+        nickname: modalInput.trim(),
+        lastUpdate: serverTimestamp()
+      }, { merge: true });
+
+      setNickname(modalInput.trim());
+      setIsNicknameModalOpen(false);
+      setModalInput('');
+      setNotification({ type: 'success', message: `Identity set to "${modalInput}"! 🚀` });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error saving nickname:', error);
+      setNotification({ type: 'error', message: 'Failed to save nickname' });
+      setTimeout(() => setNotification(null), 3000);
+    }
   };
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     if (!newMessage.trim()) {
       setNotification({ type: 'error', message: 'Message cannot be empty!' });
       setTimeout(() => setNotification(null), 3000);
@@ -60,16 +110,20 @@ export default function EmojiCryptoChat() {
       return;
     }
 
-    const message = {
-      id: `msg_${Date.now()}_${Math.random()}`,
-      userId,
-      content: newMessage.trim(),
-      timestamp: new Date(),
-      userNickname: nickname
-    };
-
-    setMessages(prev => [...prev, message]);
-    setNewMessage('');
+    try {
+      const messagesRef = collection(db, 'emoji_chat_messages');
+      await addDoc(messagesRef, {
+        userId,
+        userNickname: nickname,
+        content: newMessage.trim(),
+        timestamp: serverTimestamp()
+      });
+      setNewMessage('');
+    } catch (error) {
+      console.error('Error sending message:', error);
+      setNotification({ type: 'error', message: 'Failed to send message' });
+      setTimeout(() => setNotification(null), 3000);
+    }
   };
 
   const quickEmojis = [
@@ -83,29 +137,40 @@ export default function EmojiCryptoChat() {
     setNewMessage(prev => prev + emoji);
   };
 
-  const handleSendMoney = () => {
+  const handleSendMoney = async () => {
     if (!nickname) {
       setNotification({ type: 'error', message: 'Set your identity first! 📛' });
       setIsNicknameModalOpen(true);
       return;
     }
 
-    const transferMessage = '💰💳💵💎';
-    const message = {
-      id: `msg_${Date.now()}_${Math.random()}`,
-      userId,
-      content: transferMessage,
-      timestamp: new Date(),
-      userNickname: nickname
-    };
-    setMessages(prev => [...prev, message]);
-    setNotification({ type: 'success', message: 'Simulated $100 transfer sent! 💸' });
-    setTimeout(() => setNotification(null), 3000);
+    try {
+      const messagesRef = collection(db, 'emoji_chat_messages');
+      await addDoc(messagesRef, {
+        userId,
+        userNickname: nickname,
+        content: '💰💳💵💎',
+        timestamp: serverTimestamp()
+      });
+      setNotification({ type: 'success', message: 'Simulated $100 transfer sent! 💸' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error('Error sending money:', error);
+      setNotification({ type: 'error', message: 'Failed to send transfer' });
+      setTimeout(() => setNotification(null), 3000);
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <p className="text-xl font-medium text-indigo-500">Connecting to Firestore... 🔗</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-screen max-h-screen bg-gray-50 font-sans">
-      {/* Notification Banner */}
       {notification && (
         <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-xl text-white max-w-sm ${
           notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'
@@ -123,7 +188,6 @@ export default function EmojiCryptoChat() {
         </div>
       )}
 
-      {/* Header */}
       <header className="p-4 border-b border-gray-200 bg-white shadow-lg z-10 flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-extrabold text-indigo-700">
@@ -144,14 +208,12 @@ export default function EmojiCryptoChat() {
         </button>
       </header>
 
-      {/* Welcome Banner */}
       {!nickname && (
         <div className="p-2 bg-yellow-100 text-yellow-800 text-center font-medium">
           👋 Welcome! Set your name to start the crypto money talk.
         </div>
       )}
 
-      {/* Chat Messages Area */}
       <div className="flex-grow p-4 overflow-y-auto space-y-4 bg-white">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-400">
@@ -181,7 +243,7 @@ export default function EmojiCryptoChat() {
                     {msg.content}
                   </div>
                   <div className="text-xs text-opacity-75 mt-1 pt-1 border-t border-gray-400 border-opacity-30 italic">
-                    {msg.timestamp.toLocaleTimeString()}
+                    {msg.timestamp ? new Date(msg.timestamp.toMillis()).toLocaleTimeString() : 'now'}
                   </div>
                 </div>
               </div>
@@ -191,7 +253,6 @@ export default function EmojiCryptoChat() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
       <footer className="p-4 border-t border-gray-200 bg-white shadow-2xl z-10">
         <div className="mb-3 flex flex-wrap gap-2 justify-center sm:justify-start">
           {quickEmojis.map(emoji => (
@@ -237,13 +298,12 @@ export default function EmojiCryptoChat() {
         </div>
       </footer>
 
-      {/* Nickname Modal */}
       {isNicknameModalOpen && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center z-40 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
             <h2 className="text-xl font-bold text-indigo-700 border-b pb-3 mb-4">Set Your Identity 🏷️</h2>
             <div className="mb-4">
-              <label htmlFor="nickname" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="nickname" className="block text-sm font-medium text-gray-700 mb-2">
                 Choose a Name (2-15 chars)
               </label>
               <input
@@ -253,11 +313,25 @@ export default function EmojiCryptoChat() {
                 onChange={(e) => setModalInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && saveNickname()}
                 maxLength={15}
-                className="w-full p-2 border border-gray-300 rounded-lg focus:border-indigo-500 focus:outline-none"
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  border: '2px solid #4f46e5',
+                  borderRadius: '8px',
+                  fontSize: '18px',
+                  fontWeight: 'bold',
+                  color: '#000000',
+                  backgroundColor: '#ffffff',
+                  boxSizing: 'border-box',
+                  caretColor: '#4f46e5'
+                }}
                 placeholder="CryptoWhale"
                 autoFocus
               />
-              <p className="text-xs text-gray-500 mt-1">This name will be visible to everyone in the chat.</p>
+              <div style={{ marginTop: '8px', fontSize: '14px', color: '#666' }}>
+                Current: {modalInput}
+              </div>
+              <p className="text-xs text-gray-500 mt-2">This name will be visible to everyone in the chat.</p>
             </div>
             <div className="flex justify-end space-x-3">
               <button
