@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { auth, db, initializeAuth } from './firebase.jsx';
 import { 
-  collection, addDoc, onSnapshot, query, serverTimestamp, setDoc, doc, where
+  collection, addDoc, onSnapshot, query, serverTimestamp, setDoc, doc, updateDoc, deleteDoc
 } from 'firebase/firestore';
 
 // --- ENCRYPTION LOGIC ---
@@ -41,12 +41,12 @@ const isOnlyEmojis = (str) => {
   return str.trim().length > 0 && str.replace(emojiRegex, '').trim().length === 0;
 };
 
-export default function EmojiCryptoChat() {
+export default function CryptoSignalsChat() {
   const [currentRoom, setCurrentRoom] = useState(null);
   const [roomInput, setRoomInput] = useState('');
   const [nickname, setNickname] = useState('');
   const [userId, setUserId] = useState('');
-  const [userStatus, setUserStatus] = useState('online'); // online, away, offline
+  const [userStatus, setUserStatus] = useState('online');
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [isNicknameModalOpen, setIsNicknameModalOpen] = useState(false);
@@ -54,6 +54,8 @@ export default function EmojiCryptoChat() {
   const [notification, setNotification] = useState(null);
   const [loading, setLoading] = useState(true);
   const [roomUsers, setRoomUsers] = useState([]);
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [editingText, setEditingText] = useState('');
   const messagesEndRef = useRef(null);
 
   // Initialize Firebase Auth
@@ -69,10 +71,9 @@ export default function EmojiCryptoChat() {
     });
   }, []);
 
-  // Update user status in Firestore
+  // Update user status
   useEffect(() => {
     if (!userId || !currentRoom || !nickname) return;
-
     const userRef = doc(db, `rooms/${currentRoom}/users`, userId);
     setDoc(userRef, {
       userId,
@@ -85,38 +86,31 @@ export default function EmojiCryptoChat() {
   // Listen to room users
   useEffect(() => {
     if (!currentRoom) return;
-
     const usersRef = collection(db, `rooms/${currentRoom}/users`);
     const unsubscribe = onSnapshot(usersRef, (snapshot) => {
       const users = snapshot.docs.map(doc => doc.data());
       setRoomUsers(users);
     });
-
     return () => unsubscribe();
   }, [currentRoom]);
 
-  // Listen to messages in current room
+  // Listen to messages
   useEffect(() => {
     if (!userId || !currentRoom) return;
-
     const messagesRef = collection(db, `rooms/${currentRoom}/messages`);
     const q = query(messagesRef);
-
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedMessages = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
-
       fetchedMessages.sort((a, b) => {
         const tsA = a.timestamp?.toMillis() || 0;
         const tsB = b.timestamp?.toMillis() || 0;
         return tsA - tsB;
       });
-
       setMessages(fetchedMessages);
     });
-
     return () => unsubscribe();
   }, [userId, currentRoom]);
 
@@ -125,42 +119,34 @@ export default function EmojiCryptoChat() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const saveNickname = async () => {
+  const saveNickname = () => {
     if (!modalInput.trim() || modalInput.trim().length < 2) {
       setNotification({ type: 'error', message: 'Nickname must be 2+ characters!' });
       setTimeout(() => setNotification(null), 3000);
       return;
     }
-
     setNickname(modalInput.trim());
     setIsNicknameModalOpen(false);
     setModalInput('');
-    setNotification({ type: 'success', message: `Identity set to "${modalInput}"! 🚀` });
+    setNotification({ type: 'success', message: `Trader ID: ${modalInput} 🚀` });
     setTimeout(() => setNotification(null), 3000);
   };
 
-  const joinRoom = async () => {
+  const joinRoom = () => {
     if (!roomInput.trim()) {
       setNotification({ type: 'error', message: 'Enter a room code!' });
       setTimeout(() => setNotification(null), 3000);
       return;
     }
-
     if (!nickname) {
       setNotification({ type: 'error', message: 'Set your identity first! 📛' });
       setIsNicknameModalOpen(true);
       return;
     }
-
-    try {
-      setCurrentRoom(roomInput.toUpperCase());
-      setMessages([]);
-      setNotification({ type: 'success', message: `Joined room: ${roomInput.toUpperCase()} 🚀` });
-      setTimeout(() => setNotification(null), 3000);
-    } catch (error) {
-      setNotification({ type: 'error', message: 'Failed to join room' });
-      setTimeout(() => setNotification(null), 3000);
-    }
+    setCurrentRoom(roomInput.toUpperCase());
+    setMessages([]);
+    setNotification({ type: 'success', message: `Joined: ${roomInput.toUpperCase()} 📊` });
+    setTimeout(() => setNotification(null), 3000);
   };
 
   const leaveRoom = () => {
@@ -171,14 +157,9 @@ export default function EmojiCryptoChat() {
   };
 
   const sendMessage = async () => {
-    if (!newMessage.trim()) {
-      setNotification({ type: 'error', message: 'Message cannot be empty!' });
-      setTimeout(() => setNotification(null), 3000);
-      return;
-    }
-
+    if (!newMessage.trim()) return;
     if (!isOnlyEmojis(newMessage)) {
-      setNotification({ type: 'error', message: '❌ Only emojis allowed! 🔒' });
+      setNotification({ type: 'error', message: '❌ Signals only (emojis)! 🔒' });
       setTimeout(() => setNotification(null), 3000);
       return;
     }
@@ -186,31 +167,63 @@ export default function EmojiCryptoChat() {
     try {
       const messagesRef = collection(db, `rooms/${currentRoom}/messages`);
       const encryptedContent = xorEncrypt(newMessage.trim(), currentRoom);
-      
       await addDoc(messagesRef, {
         userId,
         userNickname: nickname,
         encryptedContent: encryptedContent,
+        isPinned: false,
         timestamp: serverTimestamp()
       });
       setNewMessage('');
     } catch (error) {
       console.error('Error sending message:', error);
-      setNotification({ type: 'error', message: 'Failed to send message' });
+      setNotification({ type: 'error', message: 'Failed to send signal' });
       setTimeout(() => setNotification(null), 3000);
     }
   };
 
-  const quickEmojis = [
-    '💰', '💎', '📈', '📉', '🏦', '💳', '💵', '💸',
-    '🔒', '🔑', '🔗', '🤯', '💯', '🚀', '✨', '🧊',
-    '🪙', '🟣', '☀️', '🐕', '🕯️', '🔶', '🌱', '🌊',
-    '📱', '💻', '📞', '📧', '📡', '⛏️', '🤖', '🕶️'
-  ];
+  const editMessage = async (msgId) => {
+    if (!editingText.trim() || !isOnlyEmojis(editingText)) {
+      setNotification({ type: 'error', message: 'Emojis only!' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
 
-  const handleQuickSelect = (emoji) => {
-    setNewMessage(prev => prev + emoji);
+    try {
+      const msgRef = doc(db, `rooms/${currentRoom}/messages`, msgId);
+      const encryptedContent = xorEncrypt(editingText.trim(), currentRoom);
+      await updateDoc(msgRef, {
+        encryptedContent: encryptedContent,
+        edited: true,
+        editedAt: serverTimestamp()
+      });
+      setEditingMessageId(null);
+      setEditingText('');
+      setNotification({ type: 'success', message: 'Signal updated!' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      setNotification({ type: 'error', message: 'Failed to edit' });
+      setTimeout(() => setNotification(null), 3000);
+    }
   };
+
+  const deleteMessage = async (msgId) => {
+    try {
+      await deleteDoc(doc(db, `rooms/${currentRoom}/messages`, msgId));
+      setNotification({ type: 'success', message: 'Signal deleted' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      setNotification({ type: 'error', message: 'Failed to delete' });
+      setTimeout(() => setNotification(null), 3000);
+    }
+  };
+
+  const signalEmojis = [
+    '🟢', '🔴', '⏸️', '📈', '📉', '💰', '💎', '🚀',
+    '⚠️', '✅', '❌', '🔥', '❄️', '💧', '⛓️', '🏦',
+    '💳', '💵', '📱', '⬆️', '⬇️', '↔️', '🪙', '₿',
+    '⛏️', '🕯️', '📊', '💼', '🎯', '⚡', '🌟', '🔔'
+  ];
 
   const getStatusEmoji = (status) => {
     switch(status) {
@@ -223,8 +236,8 @@ export default function EmojiCryptoChat() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <p className="text-xl font-medium text-indigo-500">Connecting to Firestore... 🔗</p>
+      <div className="flex items-center justify-center min-h-screen bg-gray-900">
+        <p className="text-xl font-medium text-green-400">📊 Loading signals... 🔗</p>
       </div>
     );
   }
@@ -232,117 +245,103 @@ export default function EmojiCryptoChat() {
   // Room Selection Screen
   if (!currentRoom) {
     return (
-      <div className="flex flex-col h-screen max-h-screen bg-gradient-to-br from-indigo-600 to-purple-700">
+      <div className="flex flex-col h-screen max-h-screen bg-gradient-to-br from-gray-950 via-emerald-950 to-black">
         {notification && (
           <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-xl text-white max-w-sm ${
             notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'
           }`}>
-            <div className="flex justify-between items-center">
-              <p className="font-bold">{notification.type === 'success' ? 'Success!' : 'Error!'}</p>
-              <button onClick={() => setNotification(null)} className="text-white opacity-70">×</button>
-            </div>
-            <p className="mt-1 text-sm">{notification.message}</p>
+            <p className="font-bold">{notification.type === 'success' ? '✅' : '❌'} {notification.message}</p>
           </div>
         )}
 
         <div className="flex items-center justify-center min-h-screen p-4">
-          <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
-            <h1 className="text-4xl font-extrabold text-center text-indigo-700 mb-2">
-              🧊 Crypto Money Talk 💎
+          <div className="bg-gray-950 rounded-2xl shadow-2xl p-8 w-full max-w-md border-2 border-amber-500">
+            <h1 className="text-4xl font-extrabold text-center text-amber-400 mb-2">
+              📊 TRADING SIGNALS 💹
             </h1>
-            <p className="text-center text-gray-600 mb-8">Encrypted emoji chat rooms</p>
+            <p className="text-center text-emerald-300 mb-2 font-mono text-sm">Crypto • Stocks • Bonds • Blockchain • Forex • Commodities</p>
+            <p className="text-center text-emerald-200 mb-8 font-mono text-xs">Professional Encrypted Trading Rooms</p>
 
             {!nickname && (
               <div className="mb-6">
                 <button
                   onClick={() => setIsNicknameModalOpen(true)}
-                  className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-xl transition"
+                  className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 px-4 rounded-xl transition border-2 border-amber-500"
                 >
-                  👤 Set Your Identity
+                  🎯 Set Trader ID
                 </button>
               </div>
             )}
 
             {nickname && (
-              <div className="mb-6 p-3 bg-indigo-50 rounded-lg">
-                <p className="text-sm text-gray-600">Your Identity:</p>
-                <p className="text-lg font-bold text-indigo-700">{nickname}</p>
+              <div className="mb-6 p-3 bg-emerald-950 rounded-lg border-2 border-emerald-600">
+                <p className="text-xs text-emerald-400 mb-1">YOUR ID:</p>
+                <p className="text-lg font-bold text-amber-400 font-mono">{nickname}</p>
               </div>
             )}
 
             <div className="space-y-3 mb-6">
-              <label className="block text-sm font-medium text-gray-700">Room Code</label>
+              <label className="block text-sm font-medium text-amber-400 font-mono">TRADING ROOM</label>
+              <p className="text-xs text-emerald-400 mb-2">Examples: BTC, AAPL, BOND-10Y, ETH-DEFI, EURUSD, GOLD, SPY</p>
               <input
                 type="text"
                 value={roomInput}
                 onChange={(e) => setRoomInput(e.target.value.toUpperCase())}
                 onKeyDown={(e) => e.key === 'Enter' && joinRoom()}
-                placeholder="e.g., CRYPTO2024"
+                placeholder="e.g., AAPL-STOCKS or BTC-CRYPTO"
                 maxLength={20}
-                className="w-full p-3 border-2 border-indigo-400 rounded-lg focus:border-indigo-600 focus:outline-none text-lg font-bold"
-                style={{ color: '#000000', backgroundColor: '#ffffff' }}
+                className="w-full p-3 border-2 border-emerald-600 rounded-lg focus:border-amber-500 focus:outline-none text-lg font-bold bg-gray-950 text-amber-400"
               />
-              <p className="text-xs text-gray-500">Create or join a private chat room</p>
+              <p className="text-xs text-emerald-400">Join a private trading room for any asset class</p>
             </div>
 
             <button
               onClick={joinRoom}
               disabled={!nickname || !roomInput.trim()}
-              className={`w-full py-3 rounded-xl font-bold text-white transition ${
+              className={`w-full py-3 rounded-xl font-bold text-white transition border-2 ${
                 !nickname || !roomInput.trim()
-                  ? 'bg-indigo-300 cursor-not-allowed'
-                  : 'bg-indigo-600 hover:bg-indigo-700 shadow-lg'
+                  ? 'bg-gray-800 border-gray-700 cursor-not-allowed'
+                  : 'bg-emerald-700 hover:bg-emerald-800 border-emerald-600 shadow-lg'
               }`}
             >
-              🚀 Enter Room
+              📈 ENTER ROOM
             </button>
 
             {nickname && (
               <button
                 onClick={() => setIsNicknameModalOpen(true)}
-                className="w-full mt-3 bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 px-4 rounded-lg transition"
+                className="w-full mt-3 bg-gray-800 hover:bg-gray-700 text-emerald-400 font-semibold py-2 px-4 rounded-lg transition border border-emerald-600"
               >
-                Change Identity
+                Change ID
               </button>
             )}
           </div>
         </div>
 
         {isNicknameModalOpen && (
-          <div className="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center z-40 p-4">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
-              <h2 className="text-xl font-bold text-indigo-700 border-b pb-3 mb-4">Set Your Identity 🏷️</h2>
+          <div className="fixed inset-0 bg-gray-900 bg-opacity-95 flex items-center justify-center z-40 p-4">
+            <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm p-6 border border-green-500">
+              <h2 className="text-xl font-bold text-green-400 border-b border-green-500 pb-3 mb-4">🎯 SET TRADER ID</h2>
               <input
                 type="text"
                 value={modalInput}
                 onChange={(e) => setModalInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && saveNickname()}
                 maxLength={15}
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  border: '2px solid #4f46e5',
-                  borderRadius: '8px',
-                  fontSize: '18px',
-                  fontWeight: 'bold',
-                  color: '#000000',
-                  backgroundColor: '#ffffff',
-                  boxSizing: 'border-box',
-                  marginBottom: '8px'
-                }}
-                placeholder="CryptoWhale"
+                className="w-full p-3 border-2 border-green-500 rounded-lg focus:outline-none text-lg font-bold bg-gray-900 text-green-400 mb-4"
+                placeholder="TRADER123"
                 autoFocus
               />
               <div className="flex justify-end space-x-3 mt-4">
                 <button
                   onClick={() => setIsNicknameModalOpen(false)}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                  className="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg hover:bg-gray-600"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={saveNickname}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold"
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold"
                 >
                   Save
                 </button>
@@ -356,53 +355,49 @@ export default function EmojiCryptoChat() {
 
   // Chat Room Screen
   return (
-    <div className="flex flex-col h-screen max-h-screen bg-gray-50 font-sans">
+    <div className="flex flex-col h-screen max-h-screen bg-gray-900 font-mono text-green-400">
       {notification && (
         <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-xl text-white max-w-sm ${
-          notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'
+          notification.type === 'success' ? 'bg-green-600' : 'bg-red-600'
         }`}>
-          <div className="flex justify-between items-center">
-            <p className="font-bold">{notification.type === 'success' ? 'Success!' : 'Error!'}</p>
-            <button onClick={() => setNotification(null)} className="text-white opacity-70">×</button>
-          </div>
-          <p className="mt-1 text-sm">{notification.message}</p>
+          <p className="font-bold">{notification.message}</p>
         </div>
       )}
 
-      {/* Header with Room Info */}
-      <header className="p-4 border-b border-gray-200 bg-white shadow-lg z-10">
+      {/* Header */}
+      <header className="p-4 border-b-2 border-green-500 bg-gray-800 shadow-lg z-10">
         <div className="flex justify-between items-center mb-3">
           <div>
-            <h1 className="text-2xl font-extrabold text-indigo-700">🧊 {currentRoom} 💎</h1>
-            <p className="text-sm text-gray-600">You: {nickname}</p>
+            <h1 className="text-2xl font-extrabold text-green-400">📊 {currentRoom} 💼</h1>
+            <p className="text-sm text-gray-400">Trader: {nickname} | Any Asset Class</p>
           </div>
           <div className="flex items-center space-x-2">
             <select
               value={userStatus}
               onChange={(e) => setUserStatus(e.target.value)}
-              className="px-3 py-2 bg-gray-100 rounded-lg text-sm font-semibold"
+              className="px-3 py-2 bg-gray-700 rounded-lg text-sm font-semibold text-green-400 border border-green-500"
             >
-              <option value="online">🟢 Online</option>
-              <option value="away">🟡 Away</option>
-              <option value="offline">⚫ Offline</option>
+              <option value="online">🟢 ONLINE</option>
+              <option value="away">🟡 AWAY</option>
+              <option value="offline">⚫ OFFLINE</option>
             </select>
             <button
               onClick={leaveRoom}
-              className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-bold rounded-lg"
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg border border-red-500"
             >
-              Leave
+              EXIT
             </button>
           </div>
         </div>
 
         {/* Online Users */}
-        <div className="bg-indigo-50 p-3 rounded-lg">
-          <p className="text-xs font-semibold text-gray-600 mb-2">Users in room ({roomUsers.length}):</p>
+        <div className="bg-gray-700 p-3 rounded-lg border border-green-500">
+          <p className="text-xs font-semibold text-gray-400 mb-2">ACTIVE TRADERS ({roomUsers.length}):</p>
           <div className="flex flex-wrap gap-2">
             {roomUsers.map((user) => (
-              <div key={user.userId} className="bg-white px-3 py-1 rounded-full text-sm flex items-center space-x-1 shadow-sm">
+              <div key={user.userId} className="bg-gray-800 px-3 py-1 rounded-full text-sm flex items-center space-x-1 border border-green-500">
                 <span>{getStatusEmoji(user.status)}</span>
-                <span className="font-semibold">{user.nickname}</span>
+                <span className="font-semibold text-green-400">{user.nickname}</span>
               </div>
             ))}
           </div>
@@ -410,12 +405,12 @@ export default function EmojiCryptoChat() {
       </header>
 
       {/* Messages */}
-      <div className="flex-grow p-4 overflow-y-auto space-y-4 bg-white">
+      <div className="flex-grow p-4 overflow-y-auto space-y-3 bg-gray-900">
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400">
-            <span className="text-6xl mb-3">🔒</span>
-            <p className="text-xl font-medium">Encrypted messages appear here.</p>
-            <p className="text-md">Start the secure conversation below.</p>
+          <div className="flex flex-col items-center justify-center h-full text-gray-600">
+            <span className="text-6xl mb-3">📊</span>
+            <p className="text-xl font-medium">No signals yet</p>
+            <p className="text-sm">Share encrypted trading signals below</p>
           </div>
         ) : (
           messages.map((msg) => {
@@ -425,17 +420,62 @@ export default function EmojiCryptoChat() {
               : msg.content || '';
             
             return (
-              <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'} mb-3`}>
-                <div className={`max-w-xs md:max-w-md lg:max-w-lg p-3 rounded-xl shadow-lg ${
+              <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-xs p-3 rounded-lg border-2 ${
                   isMine
-                    ? 'bg-indigo-600 text-white rounded-br-none'
-                    : 'bg-gray-100 text-gray-800 rounded-tl-none'
+                    ? 'bg-gray-800 border-green-400 rounded-br-none'
+                    : 'bg-gray-800 border-blue-500 rounded-tl-none'
                 }`}>
-                  <div className="text-xs font-semibold mb-1">{isMine ? 'You' : msg.userNickname}</div>
-                  <div className="text-3xl sm:text-4xl leading-snug break-words">{decryptedContent}</div>
-                  <div className="text-xs text-opacity-75 mt-1 pt-1 border-t border-gray-400 border-opacity-30 italic">
-                    {msg.timestamp ? new Date(msg.timestamp.toMillis()).toLocaleTimeString() : 'pending'}
-                  </div>
+                  <div className="text-xs font-semibold mb-1 text-gray-400">{isMine ? 'YOU' : msg.userNickname}</div>
+                  
+                  {editingMessageId === msg.id ? (
+                    <div className="flex gap-2 mb-2">
+                      <input
+                        type="text"
+                        value={editingText}
+                        onChange={(e) => setEditingText(e.target.value)}
+                        className="flex-grow p-2 bg-gray-700 border border-green-500 rounded text-green-400"
+                      />
+                      <button
+                        onClick={() => editMessage(msg.id)}
+                        className="px-2 py-1 bg-green-600 text-white text-xs rounded font-bold"
+                      >
+                        ✓
+                      </button>
+                      <button
+                        onClick={() => setEditingMessageId(null)}
+                        className="px-2 py-1 bg-red-600 text-white text-xs rounded font-bold"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="text-3xl leading-snug break-words mb-2">{decryptedContent}</div>
+                      <div className="flex justify-between items-center text-xs text-gray-500">
+                        <span>{msg.timestamp ? new Date(msg.timestamp.toMillis()).toLocaleTimeString() : 'pending'}</span>
+                        {isMine && (
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => {
+                                setEditingMessageId(msg.id);
+                                setEditingText(decryptedContent);
+                              }}
+                              className="text-blue-400 hover:text-blue-300 font-bold"
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              onClick={() => deleteMessage(msg.id)}
+                              className="text-red-400 hover:text-red-300 font-bold"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             );
@@ -445,13 +485,13 @@ export default function EmojiCryptoChat() {
       </div>
 
       {/* Input */}
-      <footer className="p-4 border-t border-gray-200 bg-white shadow-2xl z-10">
-        <div className="mb-3 flex flex-wrap gap-2 justify-center sm:justify-start">
-          {quickEmojis.map(emoji => (
+      <footer className="p-4 border-t-2 border-green-500 bg-gray-800 shadow-2xl z-10">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {signalEmojis.map(emoji => (
             <button
               key={emoji}
-              onClick={() => handleQuickSelect(emoji)}
-              className="text-2xl p-1 rounded-full bg-gray-50 hover:bg-indigo-100 transition-colors transform hover:scale-110 shadow-sm"
+              onClick={() => setNewMessage(prev => prev + emoji)}
+              className="text-2xl p-1 rounded-lg bg-gray-700 hover:bg-gray-600 border border-green-500 transition transform hover:scale-110"
               title={`Add ${emoji}`}
             >
               {emoji}
@@ -459,26 +499,26 @@ export default function EmojiCryptoChat() {
           ))}
         </div>
 
-        <div className="flex space-x-3">
+        <div className="flex space-x-2">
           <input
             type="text"
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-            placeholder="Encrypted money talk only... 🔒"
-            className="flex-grow p-3 border-2 border-indigo-400 rounded-xl focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600 text-2xl"
-            style={{ height: '56px' }}
+            placeholder="Send signal... 🔒"
+            className="flex-grow p-3 border-2 border-green-500 rounded-lg focus:border-green-300 focus:outline-none bg-gray-800 text-green-400 font-bold"
+            style={{ height: '48px' }}
           />
           <button
             onClick={sendMessage}
             disabled={!newMessage.trim() || !isOnlyEmojis(newMessage)}
-            className={`px-6 py-3 rounded-xl font-bold text-white transition ${
+            className={`px-4 py-3 rounded-lg font-bold transition border-2 ${
               !newMessage.trim() || !isOnlyEmojis(newMessage)
-                ? 'bg-indigo-300 cursor-not-allowed'
-                : 'bg-indigo-600 hover:bg-indigo-700 shadow-xl hover:shadow-2xl transform hover:-translate-y-0.5'
+                ? 'bg-gray-700 border-gray-600 cursor-not-allowed text-gray-500'
+                : 'bg-green-600 hover:bg-green-700 border-green-500 text-white shadow-lg'
             }`}
           >
-            Send
+            SEND 📤
           </button>
         </div>
       </footer>
