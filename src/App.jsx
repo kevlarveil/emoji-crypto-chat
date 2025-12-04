@@ -258,7 +258,9 @@ export default function EmojiCryptoChat() {
         ) : (
           messages.map((msg) => {
             const isMine = msg.userId === userId;
-            const decryptedContent = xorDecrypt(msg.encryptedContent, encryptionKey);
+            const decryptedContent = msg.encryptedContent 
+              ? xorDecrypt(msg.encryptedContent, encryptionKey)
+              : msg.content || '';
             
             return (
               <div
