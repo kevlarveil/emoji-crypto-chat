@@ -22,8 +22,3 @@ export const initializeAuth = async () => {
     console.error('Auth error:', error);
   }
 };
-    await signInAnonymously(auth);
-  } catch (error) {
-    console.error('Auth error:', error);
-  }
-};
