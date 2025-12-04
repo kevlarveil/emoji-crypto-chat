@@ -3,12 +3,12 @@ import { getAuth, signInAnonymously } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  apiKey: "AIzaSyAdzZqATJXSl5WgRxD6jLh2ZhIB8-z3wog",
+  authDomain: "crypto-money-talk.firebaseapp.com",
+  projectId: "crypto-money-talk",
+  storageBucket: "crypto-money-talk.firebasestorage.app",
+  messagingSenderId: "183021719346",
+  appId: "1:183021719346:web:8a1f90c59793cd8cc5d12b"
 };
 
 const app = initializeApp(firebaseConfig);
@@ -17,6 +17,11 @@ export const db = getFirestore(app);
 
 export const initializeAuth = async () => {
   try {
+    await signInAnonymously(auth);
+  } catch (error) {
+    console.error('Auth error:', error);
+  }
+};
     await signInAnonymously(auth);
   } catch (error) {
     console.error('Auth error:', error);
