@@ -4,6 +4,33 @@ import {
   collection, addDoc, onSnapshot, query, serverTimestamp, setDoc, doc 
 } from 'firebase/firestore';
 
+// --- ENCRYPTION LOGIC (Symmetric XOR Cipher) ---
+const xorEncrypt = (str, key) => {
+  let output = '';
+  for (let i = 0; i < str.length; i++) {
+    const keyChar = key.charCodeAt(i % key.length);
+    const encryptedChar = str.charCodeAt(i) ^ keyChar;
+    output += String.fromCharCode(encryptedChar);
+  }
+  // Base64 encode for safe storage in Firestore
+  return btoa(output);
+};
+
+const xorDecrypt = (base64Str, key) => {
+  try {
+    const decodedStr = atob(base64Str);
+    let output = '';
+    for (let i = 0; i < decodedStr.length; i++) {
+      const keyChar = key.charCodeAt(i % key.length);
+      const decryptedChar = decodedStr.charCodeAt(i) ^ keyChar;
+      output += String.fromCharCode(decryptedChar);
+    }
+    return output;
+  } catch (e) {
+    return base64Str;
+  }
+};
+
 export default function EmojiCryptoChat() {
   const [nickname, setNickname] = useState('');
   const [userId, setUserId] = useState('');
@@ -14,6 +41,9 @@ export default function EmojiCryptoChat() {
   const [notification, setNotification] = useState(null);
   const [loading, setLoading] = useState(true);
   const messagesEndRef = useRef(null);
+
+  // Encryption key based on project ID
+  const encryptionKey = 'crypto-money-talk';
 
   // Initialize Firebase Auth
   useEffect(() => {
@@ -112,10 +142,12 @@ export default function EmojiCryptoChat() {
 
     try {
       const messagesRef = collection(db, 'emoji_chat_messages');
+      const encryptedContent = xorEncrypt(newMessage.trim(), encryptionKey);
+      
       await addDoc(messagesRef, {
         userId,
         userNickname: nickname,
-        content: newMessage.trim(),
+        encryptedContent: encryptedContent,
         timestamp: serverTimestamp()
       });
       setNewMessage('');
@@ -146,10 +178,12 @@ export default function EmojiCryptoChat() {
 
     try {
       const messagesRef = collection(db, 'emoji_chat_messages');
+      const encryptedContent = xorEncrypt('💰💳💵💎', encryptionKey);
+      
       await addDoc(messagesRef, {
         userId,
         userNickname: nickname,
-        content: '💰💳💵💎',
+        encryptedContent: encryptedContent,
         timestamp: serverTimestamp()
       });
       setNotification({ type: 'success', message: 'Simulated $100 transfer sent! 💸' });
@@ -224,6 +258,8 @@ export default function EmojiCryptoChat() {
         ) : (
           messages.map((msg) => {
             const isMine = msg.userId === userId;
+            const decryptedContent = xorDecrypt(msg.encryptedContent, encryptionKey);
+            
             return (
               <div
                 key={msg.id}
@@ -240,7 +276,7 @@ export default function EmojiCryptoChat() {
                     {isMine ? 'You' : msg.userNickname}
                   </div>
                   <div className="text-3xl sm:text-4xl leading-snug break-words">
-                    {msg.content}
+                    {decryptedContent}
                   </div>
                   <div className="text-xs text-opacity-75 mt-1 pt-1 border-t border-gray-400 border-opacity-30 italic">
                     {msg.timestamp ? new Date(msg.timestamp.toMillis()).toLocaleTimeString() : 'now'}
