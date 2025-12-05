@@ -362,10 +362,30 @@ export default function TradingSignalsChat() {
     );
   }
 
-  // Chat Room Screen
-  return (
+ (
     <div className="flex flex-col h-screen max-h-screen bg-gray-950 font-mono text-amber-400">
-      {notification && (
+      {/* Left Sidebar - 8 Hot Buttons */}
+      <div className="w-32 bg-gray-900 border-r-2 border-emerald-600 p-3 overflow-y-auto flex flex-col gap-2">
+        <p className="text-xs font-bold text-emerald-400 mb-2">HOT SIGNALS</p>
+        {hotSignals.map((sig, idx) => (
+          <button
+            key={idx}
+            onClick={() => setNewMessage(sig.emoji)}
+            className={`px-2 py-3 bg-gradient-to-r from-gray-800 to-emerald-900 hover:from-emerald-800 hover:to-emerald-700 text-amber-400 font-bold rounded-lg border-2 border-emerald-600 text-xs transition transform hover:scale-105 animate-pulse`}
+            style={{
+              animationDelay: `${idx * 0.1}s`,
+              animation: `pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite`,
+              animationDelay: `${idx * 0.15}s`
+            }}
+            title={sig.emoji}
+          >
+            {sig.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Main Content */}
+      <div className="flex flex-col flex-1">{notification && (
         <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-xl text-white max-w-sm ${
           notification.type === 'success' ? 'bg-green-600' : 'bg-red-600'
         }`}>
@@ -493,22 +513,8 @@ export default function TradingSignalsChat() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
+      {/* Bottom Input Area */}
       <footer className="p-4 border-t-2 border-emerald-600 bg-gray-900 shadow-2xl z-10">
-        {/* 8 Hot Signal Buttons */}
-        <div className="mb-3 grid grid-cols-4 gap-2">
-          {hotSignals.map((sig, idx) => (
-            <button
-              key={idx}
-              onClick={() => setNewMessage(sig.emoji)}
-              className="px-2 py-2 bg-gray-800 hover:bg-emerald-900 text-amber-400 font-bold rounded-lg border-2 border-emerald-600 text-xs transition"
-              title={sig.emoji}
-            >
-              {sig.label}
-            </button>
-          ))}
-        </div>
-
         {/* Signal Emojis */}
         <div className="mb-3 flex flex-wrap gap-1">
           {signalEmojis.map(emoji => (
@@ -570,6 +576,7 @@ export default function TradingSignalsChat() {
           </button>
         </div>
       </footer>
+      </div>
     </div>
   );
 }
